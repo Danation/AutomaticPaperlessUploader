@@ -1,0 +1,17 @@
+[Unit]
+Description=Automatically upload files to Paperless service
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/dotnet /srv/AutomaticPaperlessUploader/AutomaticPaperlessUploader.dll
+SyslogIdentifier=AutomaticPaperlessUploader
+User=youruser
+
+Restart=always
+RestartSec=5
+
+# This environment variable is necessary when dotnet isn't loaded for the specified user.
+Environment=DOTNET_ROOT=/opt/dotnet
+
+[Install]
+WantedBy=multi-user.target
