@@ -6,16 +6,19 @@ namespace AutomaticPaperlessUploader;
 public class Worker : BackgroundService
 {
     private ILogger<Worker> Logger { get; }
-    private UserInputOptions UserInputOptions { get; }
+    public UserInputInterpreter UserInputInterpreter { get; }
 
-    public Worker(ILogger<Worker> logger, IOptions<UserInputOptions> userInputOptions)
+    public Worker(ILogger<Worker> logger, UserInputInterpreter userInputInterpreter)
     {
         Logger = logger;
-        UserInputOptions = userInputOptions.Value;
+        UserInputInterpreter = userInputInterpreter;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        UserInputInterpreter.UserSubmitted += (_s, _e) => Logger.LogInformation("User submitted. Ready to read files");
+        UserInputInterpreter.ListenForUserDecision();
+
         while (!stoppingToken.IsCancellationRequested)
         {
             Logger.LogTrace("Worker running at: {time}", DateTimeOffset.Now);
