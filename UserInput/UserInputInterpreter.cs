@@ -29,6 +29,7 @@ public class UserInputInterpreter {
 
             var completedActions = potentialActions.Where(x => x.InputCommand == CurrentCommand);
             if (completedActions.Any()) {
+                CurrentCommand = "";
                 Logger.LogInformation($"Commands found: {completedActions.Count()}");
                 if (completedActions.Any(x => x.Action == ActionName.Submit)) {
                     Logger.LogInformation("User submitted.");
