@@ -1,5 +1,6 @@
 using AutomaticPaperlessUploader;
 using AutomaticPaperlessUploader.FileWatching;
+using AutomaticPaperlessUploader.UserInput;
 
 var host = Host.CreateDefaultBuilder(args)
     .UseSystemd()
@@ -10,6 +11,7 @@ var host = Host.CreateDefaultBuilder(args)
 
         var config = context.Configuration;
         services.Configure<FileWatcherOptions>(config.GetSection("FileWatching"));
+        services.Configure<UserInputOptions>(config.GetSection("UserInput"));
     })
     .Build();
 

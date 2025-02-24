@@ -1,4 +1,5 @@
 using AutomaticPaperlessUploader.FileWatching;
+using AutomaticPaperlessUploader.UserInput;
 using Microsoft.Extensions.Options;
 
 namespace AutomaticPaperlessUploader;
@@ -8,12 +9,14 @@ public class Worker : BackgroundService
     private ILogger<Worker> Logger { get; }
     private FileWatcher FileWatcher { get; }
     private FileWatcherOptions FileWatcherOptions { get; }
+    private UserInputOptions UserInputOptions { get; }
 
-    public Worker(ILogger<Worker> logger, FileWatcher fileWatcher, IOptions<FileWatcherOptions> fileWatcherOptions)
+    public Worker(ILogger<Worker> logger, FileWatcher fileWatcher, IOptions<FileWatcherOptions> fileWatcherOptions, IOptions<UserInputOptions> userInputOptions)
     {
         Logger = logger;
         FileWatcher = fileWatcher;
         FileWatcherOptions = fileWatcherOptions.Value;
+        UserInputOptions = userInputOptions.Value;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
