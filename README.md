@@ -137,6 +137,15 @@ i2cdetect -y 1
 Then set `Display.Enabled` to `true` in `appsettings.json`. `Address` is decimal there, so
 `0x3C` is `60`.
 
+### If /dev/i2c-1 is missing after a reboot
+
+`dtparam=i2c_arm=on` loads the controller driver, but the character device only appears
+once the `i2c-dev` module is loaded as well:
+
+```sh
+sudo modprobe i2c-dev
+echo i2c-dev | sudo tee -a /etc/modules   # persist across reboots
+```
 ### What it shows
 
 Headline status, a detail line, and the device's IP address. The address matters more than
