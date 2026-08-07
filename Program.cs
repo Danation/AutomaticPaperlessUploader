@@ -4,6 +4,12 @@ using AutomaticPaperlessUploader.Status;
 using AutomaticPaperlessUploader.Storage;
 using AutomaticPaperlessUploader.UserInput;
 
+// Developer aid: render the status screens to PNG without any hardware attached.
+if (args.Contains("--preview-screens")) {
+    ScreenPreview.Run(Path.Combine(Path.GetTempPath(), "screens"));
+    return;
+}
+
 var host = Host.CreateDefaultBuilder(args)
     .UseSystemd()
     .ConfigureServices((context, services) =>
@@ -23,7 +29,10 @@ var host = Host.CreateDefaultBuilder(args)
         // Attach status indicators here. Every registration receives every update, so
         // adding an LED or an OLED display is a line in this list rather than a change
         // to the upload logic.
+        services.Configure<DisplayOptions>(config.GetSection("Display"));
+        services.AddSingleton<ScreenRenderer>();
         services.AddSingleton<IStatusIndicator, LoggingStatusIndicator>();
+        services.AddSingleton<IStatusIndicator, Ssd1306StatusIndicator>();
         services.AddSingleton<StatusReporter>();
 
         // A single long lived HttpClient is the right shape here: one service, one
