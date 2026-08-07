@@ -9,8 +9,8 @@ namespace AutomaticPaperlessUploader.Status;
 /// Shows status on an SSD1306 OLED over I2C.
 ///
 /// The display is strictly optional. If the bus is disabled, the module is unplugged, or
-/// a write fails, this disables itself and the service carries on uploading. Feedback
-/// hardware must never be able to take down the thing it is reporting on.
+/// a write fails, this backs off and carries on. Feedback hardware must never be able to
+/// take down the thing it is reporting on.
 /// </summary>
 public sealed class Ssd1306StatusIndicator : IStatusIndicator, IDisposable {
     private ILogger<Ssd1306StatusIndicator> Logger { get; }
@@ -18,8 +18,16 @@ public sealed class Ssd1306StatusIndicator : IStatusIndicator, IDisposable {
     private ScreenRenderer Renderer { get; }
 
     private Ssd1306? Display { get; set; }
-    private bool Initialized { get; set; }
-    private bool Unavailable { get; set; }
+
+    /// <summary>
+    /// When the panel may next be tried. Failures set this into the future rather than
+    /// disabling permanently, so a panel attached after startup, or a momentary glitch on
+    /// the wiring, recovers on its own.
+    /// </summary>
+    private DateTimeOffset RetryAt { get; set; } = DateTimeOffset.MinValue;
+
+    /// <summary>Keeps repeated failures from filling the journal with the same line.</summary>
+    private bool FailureLogged { get; set; }
 
     /// <summary>Serialises access: the panel is a single shared piece of hardware.</summary>
     private SemaphoreSlim Gate { get; } = new(1, 1);
@@ -38,7 +46,7 @@ public sealed class Ssd1306StatusIndicator : IStatusIndicator, IDisposable {
     }
 
     public async Task ShowAsync(StatusUpdate update, CancellationToken cancellationToken = default) {
-        if (!Options.Enabled || Unavailable) {
+        if (!Options.Enabled || DateTimeOffset.UtcNow < RetryAt) {
             return;
         }
 
@@ -57,7 +65,7 @@ public sealed class Ssd1306StatusIndicator : IStatusIndicator, IDisposable {
     }
 
     private bool TryInitialize() {
-        if (Initialized) {
+        if (Display is not null) {
             return true;
         }
 
@@ -67,10 +75,10 @@ public sealed class Ssd1306StatusIndicator : IStatusIndicator, IDisposable {
             var settings = new I2cConnectionSettings(Options.BusId, Options.Address);
             var device = I2cDevice.Create(settings);
 
-            Display = new Ssd1306(device, Options.Width, Options.Height);
-            Display.EnableDisplay(true);
+            var display = new Ssd1306(device, Options.Width, Options.Height);
+            display.EnableDisplay(true);
+            Display = display;
 
-            Initialized = true;
             Logger.LogInformation(
                 "Display ready on i2c-{Bus} at 0x{Address:X2} ({Width}x{Height})",
                 Options.BusId,
@@ -78,18 +86,13 @@ public sealed class Ssd1306StatusIndicator : IStatusIndicator, IDisposable {
                 Options.Width,
                 Options.Height);
 
+            FailureLogged = false;
             return true;
         }
         catch (Exception exception) {
-            // Most likely causes: dtparam=i2c_arm=on is missing from config.txt, or the
-            // module is not plugged in. Either way, say so once and stop trying.
-            Unavailable = true;
-            Logger.LogWarning(
-                exception,
-                "No display on i2c-{Bus} at 0x{Address:X2}. Continuing without it.",
-                Options.BusId,
-                Options.Address);
-
+            // Most likely causes: dtparam=i2c_arm=on missing from config.txt, the i2c-dev
+            // module not loaded, or nothing wired up yet.
+            HandleFailure(exception, "No display on i2c-{Bus} at 0x{Address:X2}.");
             return false;
         }
     }
@@ -111,9 +114,38 @@ public sealed class Ssd1306StatusIndicator : IStatusIndicator, IDisposable {
             display.DrawBitmap(image);
         }
         catch (Exception exception) {
-            Unavailable = true;
-            Logger.LogWarning(exception, "Display write failed. Continuing without it.");
+            // Drop the handle so the next attempt reopens the device from scratch.
+            Discard();
+            HandleFailure(exception, "Display write failed on i2c-{Bus} at 0x{Address:X2}.");
         }
+    }
+
+    private void HandleFailure(Exception exception, string message) {
+        Discard();
+        RetryAt = DateTimeOffset.UtcNow.AddSeconds(Math.Max(1, Options.RetryAfterSeconds));
+
+        var fullMessage = message + " Retrying in {Retry}s.";
+
+        if (!FailureLogged) {
+            Logger.LogWarning(exception, fullMessage, Options.BusId, Options.Address, Options.RetryAfterSeconds);
+            FailureLogged = true;
+        }
+        else {
+            // Already reported once; keep the journal readable.
+            Logger.LogDebug(fullMessage, Options.BusId, Options.Address, Options.RetryAfterSeconds);
+        }
+    }
+
+    private void Discard() {
+        try {
+            Display?.Dispose();
+        }
+        catch {
+            // The device is already gone; nothing useful to do.
+        }
+
+        Display = null;
+        Blanked = false;
     }
 
     /// <summary>
@@ -141,7 +173,7 @@ public sealed class Ssd1306StatusIndicator : IStatusIndicator, IDisposable {
         }
 
         try {
-            if (Blanked || Display is null || Unavailable) {
+            if (Blanked || Display is null) {
                 return;
             }
 
@@ -149,8 +181,8 @@ public sealed class Ssd1306StatusIndicator : IStatusIndicator, IDisposable {
             Blanked = true;
         }
         catch (Exception exception) {
-            Unavailable = true;
-            Logger.LogWarning(exception, "Could not blank the display.");
+            Discard();
+            HandleFailure(exception, "Could not blank the display on i2c-{Bus} at 0x{Address:X2}.");
         }
         finally {
             Gate.Release();
@@ -167,7 +199,7 @@ public sealed class Ssd1306StatusIndicator : IStatusIndicator, IDisposable {
             // Shutting down; nothing useful to do if the panel is already gone.
         }
 
-        Display?.Dispose();
+        Discard();
         Gate.Dispose();
     }
 }

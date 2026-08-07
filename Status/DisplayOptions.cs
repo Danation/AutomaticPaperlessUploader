@@ -29,4 +29,13 @@ public class DisplayOptions {
     /// A latched failure is never blanked.
     /// </summary>
     public int BlankAfterSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// How long to wait before trying the panel again after it fails.
+    ///
+    /// Giving up permanently would mean a single glitch on a dupont wire leaves the
+    /// display dark until someone restarts the service, and that a panel attached after
+    /// startup is never noticed. Retrying costs one failed I2C write per interval.
+    /// </summary>
+    public int RetryAfterSeconds { get; set; } = 60;
 }
