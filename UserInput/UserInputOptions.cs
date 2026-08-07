@@ -4,6 +4,18 @@ using System.Text.Json.Serialization;
 namespace AutomaticPaperlessUploader.UserInput;
 
 public class UserInputOptions {
+    /// <summary>
+    /// When true any key starts an upload, and the Actions list is ignored. The document
+    /// metadata that the keypad used to select is now handled downstream in Paperless.
+    /// </summary>
+    public bool AnyKeySubmits { get; set; } = true;
+
+    /// <summary>
+    /// Read keys from stdin instead of the GPIO keypad. Useful for testing the upload
+    /// pipeline over SSH without the hardware attached.
+    /// </summary>
+    public bool UseConsoleInput { get; set; } = false;
+
     public KeyMatrixOptions KeyMatrix { get; set; } = new();
 
     public List<ActionOptions> Actions { get; set; } = new();
