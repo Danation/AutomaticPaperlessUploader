@@ -39,9 +39,20 @@ public class GadgetController {
 
         // Eject first so the host raises a media change event rather than silently
         // reading stale geometry from the previous image.
-        await WriteLunAsync("", cancellationToken);
-        await Task.Delay(StorageOptions.MediaChangeDelayMs, cancellationToken);
-        await WriteLunAsync(incoming, cancellationToken);
+        await EjectAsync(cancellationToken);
+
+        try {
+            await Task.Delay(StorageOptions.MediaChangeDelayMs, cancellationToken);
+            await WriteLunAsync(incoming, cancellationToken);
+        }
+        catch {
+            // The medium is already ejected, so failing here would leave the scanner with
+            // no drive at all. Put the original image back so the next attempt starts from
+            // a sane state.
+            Logger.LogError("Failed to insert '{Incoming}'. Restoring '{Released}'.", incoming, released);
+            await TryRestoreAsync(released);
+            throw;
+        }
 
         var confirmed = await GetExposedImageAsync(cancellationToken);
         if (confirmed != incoming) {
@@ -77,5 +88,63 @@ public class GadgetController {
     private async Task WriteLunAsync(string value, CancellationToken cancellationToken) {
         // The sysfs attribute expects a bare value with no trailing newline.
         await File.WriteAllTextAsync(StorageOptions.LunFilePath, value, cancellationToken);
+    }
+
+    private async Task TryRestoreAsync(string imagePath) {
+        try {
+            await WriteLunAsync(imagePath, CancellationToken.None);
+        }
+        catch (Exception exception) {
+            Logger.LogError(exception, "Could not restore '{Image}'. The scanner may see no drive.", imagePath);
+        }
+    }
+
+    /// <summary>
+    /// Ejects the current medium.
+    ///
+    /// The scanner keeps the medium held for a moment after it finishes writing, and while
+    /// it does the kernel rejects a normal eject with EBUSY. Retry politely first so the
+    /// host gets a chance to release it on its own, then force the eject rather than
+    /// abandoning the cycle and stranding the scan on the drive.
+    /// </summary>
+    private async Task EjectAsync(CancellationToken cancellationToken) {
+        for (var attempt = 1; attempt <= StorageOptions.EjectRetries; attempt++) {
+            try {
+                await WriteLunAsync("", cancellationToken);
+                return;
+            }
+            catch (IOException exception) {
+                Logger.LogWarning(
+                    "Eject attempt {Attempt} of {Total} failed because the host still holds the medium: {Message}",
+                    attempt,
+                    StorageOptions.EjectRetries,
+                    exception.Message);
+
+                if (attempt < StorageOptions.EjectRetries) {
+                    await Task.Delay(StorageOptions.EjectRetryDelayMs, cancellationToken);
+                }
+            }
+        }
+
+        await ForceEjectAsync(cancellationToken);
+    }
+
+    private async Task ForceEjectAsync(CancellationToken cancellationToken) {
+        var forcedEjectPath = Path.Combine(
+            Path.GetDirectoryName(StorageOptions.LunFilePath) ?? string.Empty,
+            "forced_eject");
+
+        if (!File.Exists(forcedEjectPath)) {
+            throw new InvalidOperationException(
+                $"The medium is busy and this kernel does not expose '{forcedEjectPath}' to force the eject.");
+        }
+
+        Logger.LogWarning("Forcing eject via '{Path}'", forcedEjectPath);
+        await File.WriteAllTextAsync(forcedEjectPath, "1", cancellationToken);
+
+        var remaining = await GetExposedImageAsync(cancellationToken);
+        if (!string.IsNullOrEmpty(remaining)) {
+            throw new InvalidOperationException($"Forced eject did not release the medium. Still exposing '{remaining}'.");
+        }
     }
 }

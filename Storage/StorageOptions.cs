@@ -21,6 +21,14 @@ public class StorageOptions {
     public int MediaChangeDelayMs { get; set; } = 500;
 
     /// <summary>
+    /// How many times to retry a polite eject before forcing it. The scanner briefly
+    /// holds the medium after writing, which makes the kernel report the LUN as busy.
+    /// </summary>
+    public int EjectRetries { get; set; } = 3;
+
+    public int EjectRetryDelayMs { get; set; } = 1000;
+
+    /// <summary>
     /// Ignore repeat submissions within this window, so keypad bounce or an impatient
     /// second press cannot start a competing upload cycle.
     /// </summary>
