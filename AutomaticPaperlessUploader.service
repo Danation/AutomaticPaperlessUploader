@@ -1,16 +1,24 @@
 [Unit]
-Description=Automatically upload files to Paperless service
+Description=Automatically upload scanned files to Paperless
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=notify
 ExecStart=/usr/local/bin/dotnet /srv/AutomaticPaperlessUploader/AutomaticPaperlessUploader.dll
 SyslogIdentifier=AutomaticPaperlessUploader
-User=youruser
+WorkingDirectory=/srv/AutomaticPaperlessUploader
+
+# Runs as root because it writes the gadget LUN in sysfs and loop mounts the images.
+User=root
+
+# Holds PAPERLESS__TOKEN. Keep it mode 600 and out of git.
+EnvironmentFile=-/etc/automaticpaperlessuploader.env
 
 Restart=always
 RestartSec=5
 
-# This environment variable is necessary when dotnet isn't loaded for the specified user.
+# dotnet is not on root's path by default.
 Environment=DOTNET_ROOT=/opt/dotnet
 
 [Install]

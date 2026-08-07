@@ -6,7 +6,7 @@ namespace AutomaticPaperlessUploader.UserInput;
 
 public class KeyMatrixReader {
     private ILogger<KeyMatrixReader> Logger { get; }
-    
+
     private UserInputOptions UserInputOptions { get; }
 
     public event EventHandler<KeyMatrixReaderKeyHitEventArgs>? KeyHit;
@@ -17,7 +17,12 @@ public class KeyMatrixReader {
     }
 
     public void Initialize() {
-        InitializeConsole();
+        if (UserInputOptions.UseConsoleInput) {
+            InitializeConsole();
+            return;
+        }
+
+        InitializeKeyMatrix();
     }
 
     private void InitializeKeyMatrix() {
@@ -36,13 +41,20 @@ public class KeyMatrixReader {
     }
 
     private void InitializeConsole() {
+        Logger.LogInformation("Reading keys from the console. Enter one character then press return.");
         Task.Run(async () => {
             while (true) {
                 var text = await Console.In.ReadLineAsync();
-                if (text?.Length != 1) {
+                if (text is null) {
+                    Logger.LogInformation("Console input closed.");
+                    return;
+                }
+
+                if (text.Length != 1) {
                     Logger.LogWarning("Invalid console input: Enter exactly one character per line.");
                     continue;
                 }
+
                 Logger.LogInformation($"Received: {text}");
                 KeyHit?.Invoke(this, new KeyMatrixReaderKeyHitEventArgs { Key = text[0] });
             }
