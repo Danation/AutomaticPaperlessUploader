@@ -61,32 +61,23 @@ echo 'PAPERLESS__TOKEN=your-token-here' | sudo tee /etc/automaticpaperlessupload
 
 Generate the token in Paperless under **Settings → My Profile → API Auth Token**.
 
-## One time Pi setup
+## Setting up the device
 
-Enable peripheral mode in `/boot/firmware/config.txt`:
+See [SETUP.md](SETUP.md) for a full rebuild from a blank SD card: gadget mode, the backing
+images, keypad wiring, the .NET runtime, the API token and deployment.
+
+The short version:
 
 ```
-dtoverlay=dwc2,dr_mode=peripheral
-```
-
-Create the two images:
-
-```sh
-sudo dd bs=1M if=/dev/zero of=/piusb.bin count=4096
-sudo mkdosfs /piusb.bin -F 32 -I
-sudo cp /piusb.bin /piusb2.bin
-```
-
-Load the gadget at boot by adding this to `/etc/rc.local` or a systemd unit:
-
-```sh
-/sbin/modprobe g_mass_storage file=/piusb.bin stall=0 removable=y
+dtoverlay=dwc2,dr_mode=peripheral   # /boot/firmware/config.txt
+dwc2                                 # /etc/modules
+@reboot /sbin/modprobe g_mass_storage file=/piusb.bin stall=0 removable=y   # root crontab
 ```
 
 `removable=y` matters. It tells the host the media can change, which is what makes the
 in place swap work.
 
-Connect the scanner to the Pi's **data** USB port, not the power only port.
+Connect the scanner to the Pi's **inner** USB port. The outer one is power only.
 
 ## Deploying
 
