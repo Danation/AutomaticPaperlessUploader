@@ -102,3 +102,71 @@ journalctl -u AutomaticPaperlessUploader -f
 
 A file that fails to upload is left on the image rather than deleted, so the next cycle
 retries it. Only one upload cycle runs at a time; keys pressed during a cycle are ignored.
+
+## Status display (optional)
+
+An SSD1306 OLED over I2C shows what the device is doing. It is entirely optional: if the
+bus is disabled, the module is unplugged, or a write fails, the indicator disables itself
+and uploading carries on. Feedback hardware must never take down the thing it reports on.
+
+### Wiring
+
+| Display | Pi |
+| --- | --- |
+| VCC | 3V3 (pin 1) |
+| GND | GND (pin 6) |
+| SDA | GPIO2 (pin 3) |
+| SCL | GPIO3 (pin 5) |
+
+The keypad already uses GPIO 5, 6, 12, 13, 16, 19, 20 and 21, so the I2C pins are clear.
+
+### Enabling
+
+Uncomment in `/boot/firmware/config.txt`, then reboot:
+
+```
+dtparam=i2c_arm=on
+```
+
+Confirm the panel is seen, usually at `0x3C`:
+
+```sh
+i2cdetect -y 1
+```
+
+Then set `Display.Enabled` to `true` in `appsettings.json`. `Address` is decimal there, so
+`0x3C` is `60`.
+
+### If /dev/i2c-1 is missing after a reboot
+
+`dtparam=i2c_arm=on` loads the controller driver, but the character device only appears
+once the `i2c-dev` module is loaded as well:
+
+```sh
+sudo modprobe i2c-dev
+echo i2c-dev | sudo tee -a /etc/modules   # persist across reboots
+```
+### What it shows
+
+Headline status, a detail line, and the device's IP address. The address matters more than
+it looks: this machine is headless and lives behind a scanner, so when it drops off the
+network there is otherwise nothing to look at.
+
+Failures stay on screen until the next cycle. Everything else blanks after
+`BlankAfterSeconds` to avoid burning the panel, since a status display would otherwise
+show "Ready" for weeks.
+
+### Previewing without hardware
+
+Renders every screen to PNG so layout can be reviewed before the panel arrives:
+
+```sh
+dotnet run -- --preview-screens
+```
+
+### Notes
+
+`Iot.Device.Bindings.SkiaSharpAdapter` provides text rendering. `System.Drawing.Common` is
+Windows only from .NET 6 onward, so it is not an option here. SkiaSharp works on
+`linux-arm64` without fontconfig installed, and silently falls back when a font family is
+missing, so `FontFamily` is a preference rather than a guarantee.

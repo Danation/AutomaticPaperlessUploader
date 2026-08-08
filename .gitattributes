@@ -1,0 +1,23 @@
+# Normalise text files to LF inside the repository and check them out in each
+# platform's native form.
+#
+# Without this the repository has drifted into a mix: the C# files and .gitignore
+# were committed from Visual Studio with CRLF, while README.md, LICENSE and
+# appsettings.json are LF. Editing a CRLF file from Linux (or the reverse) then
+# rewrites every line, so a one line change can arrive as a two hundred line diff
+# that hides what actually changed.
+#
+# text=auto with no eol setting is deliberate. This project is edited both in
+# Visual Studio on Windows and directly on the Raspberry Pi over SSH, so pinning
+# the working tree to one line ending would fight one of those. Normalising in
+# the repository and checking out natively suits both.
+
+* text=auto
+
+# Never touch binaries. Scanned documents and screen captures pass through here.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.bin binary
+*.ico binary
