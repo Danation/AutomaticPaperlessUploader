@@ -33,4 +33,19 @@ public class StorageOptions {
     /// second press cannot start a competing upload cycle.
     /// </summary>
     public int SubmitCooldownMs { get; set; } = 3000;
+
+    /// <summary>
+    /// How long the exposed image must go untouched before the scanner is considered
+    /// finished. The gadget writes the host's data through the backing file, so its mtime
+    /// is the only available signal that a scan is still arriving.
+    /// </summary>
+    public int QuietPeriodMs { get; set; } = 3000;
+
+    /// <summary>
+    /// How long to wait for that quiet period before giving up and swapping anyway.
+    ///
+    /// Proceeding risks reading a half written file, but the alternative is a key press
+    /// that appears to do nothing, so the timeout is logged loudly instead.
+    /// </summary>
+    public int MaxWaitForQuietMs { get; set; } = 30000;
 }
