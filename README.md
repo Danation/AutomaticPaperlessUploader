@@ -33,6 +33,8 @@ Paperless handles classification after upload.
 | `Storage.Images` | The two images that alternate |
 | `Storage.LunFilePath` | Sysfs file that controls the exposed media |
 | `Storage.SubmitCooldownMs` | Debounce window for repeat key presses |
+| `Storage.QuietPeriodMs` | How long the drive must go untouched before the scanner counts as finished |
+| `Storage.MaxWaitForQuietMs` | How long to wait for that before swapping anyway |
 | `Paperless.BaseUrl` | Paperless server |
 | `Paperless.Tags` | Tag names applied at upload, resolved to ids at runtime |
 | `Paperless.AllowedExtensions` | File types that get uploaded |
@@ -90,6 +92,17 @@ journalctl -u AutomaticPaperlessUploader -f
 ```
 
 ## Failure handling
+
+Pressing the key while a scan is still being written would hand the upload a half
+finished file, so the swap waits for the drive to go untouched for `QuietPeriodMs`
+first. There is no kernel signal for this: the mass storage LUN exposes only its
+backing file, read only flag and eject controls, so the mtime of that backing file is
+used as a proxy, since the gadget writes the host's data through it.
+
+If the scanner never goes quiet within `MaxWaitForQuietMs` the swap happens anyway and
+logs a warning. A key press that appears to do nothing is worse than the risk, but the
+risk is real: a document caught mid write may be incomplete.
+
 
 A file that fails to upload is left on the image rather than deleted, so the next cycle
 retries it. Only one upload cycle runs at a time; keys pressed during a cycle are ignored.
