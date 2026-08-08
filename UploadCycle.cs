@@ -1,4 +1,5 @@
 using AutomaticPaperlessUploader.Paperless;
+using AutomaticPaperlessUploader.Status;
 using AutomaticPaperlessUploader.Storage;
 using Microsoft.Extensions.Options;
 
@@ -14,6 +15,7 @@ public class UploadCycle {
     private ImageMounter ImageMounter { get; }
     private PaperlessClient PaperlessClient { get; }
     private PaperlessOptions PaperlessOptions { get; }
+    private StatusReporter StatusReporter { get; }
 
     /// <summary>
     /// Guarantees only one cycle runs at a time. A second keypress during an upload is
@@ -26,13 +28,15 @@ public class UploadCycle {
         GadgetController gadgetController,
         ImageMounter imageMounter,
         PaperlessClient paperlessClient,
-        IOptions<PaperlessOptions> paperlessOptions) {
+        IOptions<PaperlessOptions> paperlessOptions,
+        StatusReporter statusReporter) {
 
         Logger = logger;
         GadgetController = gadgetController;
         ImageMounter = imageMounter;
         PaperlessClient = paperlessClient;
         PaperlessOptions = paperlessOptions.Value;
+        StatusReporter = statusReporter;
     }
 
     public async Task RunAsync(CancellationToken cancellationToken = default) {
@@ -42,6 +46,8 @@ public class UploadCycle {
         }
 
         try {
+            await StatusReporter.ReportAsync(DeviceStatus.Working, "Swapping drive", cancellationToken);
+
             var releasedImage = await GadgetController.SwapAsync(cancellationToken);
 
             await ImageMounter.UseMountedImageAsync(
@@ -51,6 +57,10 @@ public class UploadCycle {
         }
         catch (Exception exception) when (exception is not OperationCanceledException) {
             Logger.LogError(exception, "Upload cycle failed.");
+
+            // Report on an uncancelled token: the user still needs to see this even if
+            // the service is shutting down underneath us.
+            await StatusReporter.ReportAsync(DeviceStatus.Failed, exception.Message, CancellationToken.None);
         }
         finally {
             Gate.Release();
@@ -66,12 +76,19 @@ public class UploadCycle {
 
         if (files.Count == 0) {
             Logger.LogInformation("No files to upload on this drive.");
+            await StatusReporter.ReportAsync(DeviceStatus.NothingToUpload, cancellationToken: cancellationToken);
             return;
         }
 
         Logger.LogInformation("Found {Count} file(s) to upload.", files.Count);
+        await StatusReporter.ReportAsync(
+            DeviceStatus.Working,
+            $"Uploading {files.Count} file(s)",
+            cancellationToken);
 
         var succeeded = 0;
+        string? firstError = null;
+
         foreach (var file in files) {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -81,6 +98,7 @@ public class UploadCycle {
                 // Leave the file in place so the next cycle retries it rather than
                 // silently losing a scan.
                 Logger.LogError("Upload failed for '{FileName}': {Error}", result.FileName, result.Error);
+                firstError ??= result.Error;
                 continue;
             }
 
@@ -92,6 +110,21 @@ public class UploadCycle {
         }
 
         Logger.LogInformation("Uploaded {Succeeded} of {Total} file(s).", succeeded, files.Count);
+
+        // A partial success still leaves scans stranded on the drive, so report it as a
+        // failure. Anything short of "everything is filed" needs the user to come back.
+        if (succeeded == files.Count) {
+            await StatusReporter.ReportAsync(
+                DeviceStatus.Succeeded,
+                $"{succeeded} file(s) uploaded",
+                cancellationToken);
+        }
+        else {
+            await StatusReporter.ReportAsync(
+                DeviceStatus.Failed,
+                $"Uploaded {succeeded} of {files.Count}. {firstError}".Trim(),
+                cancellationToken);
+        }
     }
 
     private bool IsUploadable(string path) {
