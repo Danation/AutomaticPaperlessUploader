@@ -4,10 +4,17 @@ using System.Device.Gpio;
 
 namespace AutomaticPaperlessUploader.UserInput;
 
-public class KeyMatrixReader {
+public sealed class KeyMatrixReader : IDisposable {
     private ILogger<KeyMatrixReader> Logger { get; }
 
     private UserInputOptions UserInputOptions { get; }
+
+    /// <summary>
+    /// Held so it can be stopped and disposed on shutdown. The binding runs its scan on a
+    /// non background thread, so leaving it running keeps the process alive after the host
+    /// stops and systemd eventually has to SIGKILL it.
+    /// </summary>
+    private KeyMatrix? KeyMatrix { get; set; }
 
     public event EventHandler<KeyMatrixReaderKeyHitEventArgs>? KeyHit;
 
@@ -37,6 +44,7 @@ public class KeyMatrixReader {
             }
         };
         keyMatrix.StartListeningKeyEvent();
+        KeyMatrix = keyMatrix;
         Logger.LogInformation("KeyMatrixReader is listening for events.");
     }
 
@@ -59,6 +67,20 @@ public class KeyMatrixReader {
                 KeyHit?.Invoke(this, new KeyMatrixReaderKeyHitEventArgs { Key = text[0] });
             }
         });
+    }
+
+    public void Dispose() {
+        if (KeyMatrix is null) {
+            return;
+        }
+
+        // Order matters. Dispose only closes the pins, it does not stop the scan loop, so
+        // stopping first lets the loop exit instead of finding its pins closed underneath it.
+        KeyMatrix.StopListeningKeyEvent();
+        KeyMatrix.Dispose();
+        KeyMatrix = null;
+
+        Logger.LogInformation("Released the keypad.");
     }
 }
 
