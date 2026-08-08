@@ -119,16 +119,19 @@ smooth PWM dimming on a status LED, though plain digital colours still work.
 
 ## 5. .NET runtime
 
-The service is a .NET 8 worker. Install the arm64 runtime under `/opt/dotnet` and symlink it
+The service is a .NET 10 worker. Install the arm64 SDK under `/opt/dotnet` and symlink it
 so systemd and a login shell agree on the path:
 
 ```sh
 curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
 chmod +x dotnet-install.sh
-sudo ./dotnet-install.sh --channel 8.0 --install-dir /opt/dotnet
+sudo ./dotnet-install.sh --channel 10.0 --install-dir /opt/dotnet
 sudo ln -sf /opt/dotnet/dotnet /usr/local/bin/dotnet
 dotnet --version
 ```
+
+The install script places versions side by side, so an older runtime already there is left
+alone and can still be rolled back to.
 
 The unit sets `DOTNET_ROOT=/opt/dotnet` because it is not on root's path by default.
 
