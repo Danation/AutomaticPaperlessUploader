@@ -16,6 +16,7 @@ public class UploadCycle {
     private PaperlessClient PaperlessClient { get; }
     private PaperlessOptions PaperlessOptions { get; }
     private StatusReporter StatusReporter { get; }
+    private ScannerActivityMonitor ScannerActivityMonitor { get; }
 
     /// <summary>
     /// Guarantees only one cycle runs at a time. A second keypress during an upload is
@@ -29,7 +30,8 @@ public class UploadCycle {
         ImageMounter imageMounter,
         PaperlessClient paperlessClient,
         IOptions<PaperlessOptions> paperlessOptions,
-        StatusReporter statusReporter) {
+        StatusReporter statusReporter,
+        ScannerActivityMonitor scannerActivityMonitor) {
 
         Logger = logger;
         GadgetController = gadgetController;
@@ -37,6 +39,7 @@ public class UploadCycle {
         PaperlessClient = paperlessClient;
         PaperlessOptions = paperlessOptions.Value;
         StatusReporter = statusReporter;
+        ScannerActivityMonitor = scannerActivityMonitor;
     }
 
     public async Task RunAsync(CancellationToken cancellationToken = default) {
@@ -47,6 +50,10 @@ public class UploadCycle {
 
         try {
             await StatusReporter.ReportAsync(DeviceStatus.Working, "Swapping drive", cancellationToken);
+
+            // Check before swapping, while the scanner still owns this image. Afterwards it
+            // is writing to the other one and its mtime tells us nothing useful.
+            await WaitForScannerAsync(cancellationToken);
 
             var releasedImage = await GadgetController.SwapAsync(cancellationToken);
 
@@ -64,6 +71,37 @@ public class UploadCycle {
         }
         finally {
             Gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Holds off the swap while the scanner is still writing, so the upload does not read a
+    /// half finished file.
+    /// </summary>
+    private async Task WaitForScannerAsync(CancellationToken cancellationToken) {
+        var exposedImage = await GadgetController.GetExposedImageAsync(cancellationToken);
+
+        if (string.IsNullOrEmpty(exposedImage)) {
+            return;
+        }
+
+        var progress = new Progress<TimeSpan>(maxWait =>
+            _ = StatusReporter.ReportAsync(
+                DeviceStatus.Working,
+                $"Scanner is busy, waiting up to {maxWait.TotalSeconds:F0}s",
+                CancellationToken.None));
+
+        var result = await ScannerActivityMonitor.WaitForQuietAsync(exposedImage, progress, cancellationToken);
+
+        if (!result.BecameQuiet) {
+            // Deliberately continuing. A press that appears to do nothing is worse than the
+            // risk here, but a truncated document would be uploaded and then deleted from
+            // the drive, so this must not pass quietly.
+            Logger.LogWarning(
+                "Scanner was still writing to '{Image}' after {Waited:F0}s. Continuing anyway; "
+                + "a document caught mid write may be incomplete.",
+                exposedImage,
+                result.Waited.TotalSeconds);
         }
     }
 

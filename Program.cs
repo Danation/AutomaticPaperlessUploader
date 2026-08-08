@@ -24,6 +24,7 @@ var host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<UserInputInterpreter>();
         services.AddSingleton<GadgetController>();
         services.AddSingleton<ImageMounter>();
+        services.AddSingleton<ScannerActivityMonitor>();
         services.AddSingleton<UploadCycle>();
 
         // Attach status indicators here. Every registration receives every update, so
