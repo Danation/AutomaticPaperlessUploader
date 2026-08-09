@@ -29,15 +29,10 @@ public class Worker : BackgroundService
         UserInputInterpreter.UserSubmitted += (_s, _e) => {
             // The keypad event is raised on the GPIO callback thread, so hand the work
             // off rather than blocking it for the length of an upload.
-            _ = Task.Run(async () => {
-                await UploadCycle.RunAsync(stoppingToken);
-
-                // Successes fade back to Ready. A failure is left showing, because the
-                // files it refers to are still sitting on the drive.
-                if (StatusReporter.Current?.ShouldLatch != true) {
-                    await StatusReporter.ReportAsync(DeviceStatus.Ready, cancellationToken: stoppingToken);
-                }
-            }, stoppingToken);
+            //
+            // Nothing here decides what the device shows afterwards: the cycle reports
+            // what happened and StatusReporter decides how long it stays.
+            _ = Task.Run(() => UploadCycle.RunAsync(stoppingToken), stoppingToken);
         };
 
         UserInputInterpreter.ListenForUserDecision();
