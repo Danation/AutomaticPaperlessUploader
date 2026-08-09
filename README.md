@@ -124,6 +124,21 @@ and uploading carries on. Feedback hardware must never take down the thing it re
 
 The keypad already uses GPIO 5, 6, 12, 13, 16, 19, 20 and 21, so the I2C pins are clear.
 
+### Panel size
+
+Set `Display.Height` to match the panel. 0.96 inch modules are usually 128x64 and 0.91
+inch modules are usually 128x32, and both answer on the same address, so the scan cannot
+tell them apart.
+
+Getting it wrong is not obvious: a 32 pixel panel driven as 64 still shows the top half,
+so the headline appears and anything below y=32 silently vanishes.
+
+A short panel only has room for two lines, so it shows the headline plus **either** the
+detail or the address: the detail when something is happening or has failed, the address
+when idle. On a 64 pixel panel all three fit.
+
+`dotnet run -- --preview-screens` renders every state at both sizes.
+
 ### Enabling
 
 Uncomment in `/boot/firmware/config.txt`, then reboot:
