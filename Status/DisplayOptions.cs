@@ -31,6 +31,15 @@ public class DisplayOptions {
     public int BlankAfterSeconds { get; set; } = 300;
 
     /// <summary>
+    /// How long a finished result stays on screen before the device returns to Ready.
+    ///
+    /// The upload itself takes a few seconds, by which point the user is usually still at
+    /// the scanner, so a result that clears the moment it appears is one they never see.
+    /// Failures ignore this and stay up until the next cycle.
+    /// </summary>
+    public int ResultLingerSeconds { get; set; } = 10;
+
+    /// <summary>
     /// How long to wait before trying the panel again after it fails.
     ///
     /// Giving up permanently would mean a single glitch on a dupont wire leaves the
