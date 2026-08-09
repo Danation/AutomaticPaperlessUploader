@@ -18,15 +18,30 @@ public class ScreenRenderer {
         Options = options.Value;
     }
 
+    /// <summary>
+    /// A 128x32 panel fits roughly two lines, so it cannot show the headline, a detail and
+    /// the address at once and has to drop one.
+    /// </summary>
+    private bool IsShortPanel => Options.Height < 48;
+
     public void Draw(BitmapImage image, StatusUpdate update, string address) {
         image.Clear(Color.Black);
         var graphics = image.GetDrawingApi();
 
+        if (IsShortPanel) {
+            DrawShort(graphics, update, address);
+            return;
+        }
+
+        DrawTall(graphics, update, address);
+    }
+
+    private void DrawTall(IGraphics graphics, StatusUpdate update, string address) {
         // Headline: the one word that should be readable from across the room.
         graphics.DrawText(Headline(update.Status), Options.FontFamily, 16, Color.White, new Point(0, 0));
 
         var y = 22;
-        foreach (var line in WrapDetail(update)) {
+        foreach (var line in WrapDetail(update, 25, 2)) {
             graphics.DrawText(line, Options.FontFamily, 10, Color.White, new Point(0, y));
             y += 12;
         }
@@ -34,6 +49,24 @@ public class ScreenRenderer {
         // Bottom line is always the address, because the times this device is most
         // confusing are the times it is not on the network.
         graphics.DrawText(address, Options.FontFamily, 10, Color.White, new Point(0, Options.Height - 12));
+    }
+
+    private void DrawShort(IGraphics graphics, StatusUpdate update, string address) {
+        graphics.DrawText(Headline(update.Status), Options.FontFamily, 14, Color.White, new Point(0, -2));
+
+        // Only one line spare, so pick whichever is more useful right now. A detail only
+        // exists when something is happening or has gone wrong, and in those moments it
+        // beats the address. When idle there is no detail and the address is what helps.
+        var second = update.Detail;
+
+        if (string.IsNullOrWhiteSpace(second)) {
+            second = address;
+        }
+        else {
+            second = WrapDetail(update, 30, 1).FirstOrDefault() ?? address;
+        }
+
+        graphics.DrawText(second, Options.FontFamily, 10, Color.White, new Point(0, 17));
     }
 
     public static string Headline(DeviceStatus status) => status switch {
@@ -51,16 +84,13 @@ public class ScreenRenderer {
     /// width at a known font size, so counting characters is accurate enough and cannot
     /// throw partway through a redraw.
     /// </summary>
-    public static IEnumerable<string> WrapDetail(StatusUpdate update) {
+    public static IEnumerable<string> WrapDetail(StatusUpdate update, int charactersPerLine, int maximumLines) {
         var detail = update.Detail;
 
         if (string.IsNullOrWhiteSpace(detail)) {
             yield return update.OccurredAt.ToString("HH:mm:ss");
             yield break;
         }
-
-        const int charactersPerLine = 25;
-        const int maximumLines = 2;
 
         var remaining = detail.Trim();
         var emitted = 0;

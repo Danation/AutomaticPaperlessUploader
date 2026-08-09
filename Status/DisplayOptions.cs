@@ -15,7 +15,7 @@ public class DisplayOptions {
 
     public int Width { get; set; } = 128;
 
-    public int Height { get; set; } = 64;
+    public int Height { get; set; } = 32;
 
     /// <summary>
     /// Font family. SkiaSharp silently falls back when a family is missing, so this is a
