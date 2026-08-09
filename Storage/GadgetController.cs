@@ -8,6 +8,9 @@ namespace AutomaticPaperlessUploader.Storage;
 /// The g_mass_storage gadget exposes a writable sysfs file for the LUN backing store.
 /// Writing a path swaps the media in place, so the USB device is never disconnected.
 /// Writing an empty string ejects the media.
+///
+/// Every write to that file can fail with EBUSY while the host is touching the medium, so
+/// they all go through <see cref="TryWriteLunAsync"/> rather than being written directly.
 /// </summary>
 public class GadgetController {
     private ILogger<GadgetController> Logger { get; }
@@ -41,17 +44,22 @@ public class GadgetController {
         // reading stale geometry from the previous image.
         await EjectAsync(cancellationToken);
 
-        try {
-            await Task.Delay(StorageOptions.MediaChangeDelayMs, cancellationToken);
-            await WriteLunAsync(incoming, cancellationToken);
-        }
-        catch {
-            // The medium is already ejected, so failing here would leave the scanner with
-            // no drive at all. Put the original image back so the next attempt starts from
-            // a sane state.
-            Logger.LogError("Failed to insert '{Incoming}'. Restoring '{Released}'.", incoming, released);
-            await TryRestoreAsync(released);
-            throw;
+        // The host re-probes the moment the medium disappears, and it holds the LUN busy
+        // while it does. This settle time is a first guess; the retries below do the real
+        // work of waiting it out.
+        await Task.Delay(StorageOptions.MediaChangeDelayMs, cancellationToken);
+
+        if (!await TryWriteLunAsync(incoming, $"insert '{incoming}'", null, cancellationToken)) {
+            // The medium is already ejected, so giving up here would leave the scanner
+            // with no drive at all.
+            Logger.LogError("Could not insert '{Incoming}'. Restoring '{Released}'.", incoming, released);
+
+            if (!await TryWriteLunAsync(released, $"restore '{released}'", null, CancellationToken.None)) {
+                Logger.LogError("Could not restore '{Released}' either. The scanner has no drive.", released);
+            }
+
+            throw new InvalidOperationException(
+                $"Failed to insert '{incoming}' after {StorageOptions.LunWriteRetries} attempts.");
         }
 
         var confirmed = await GetExposedImageAsync(cancellationToken);
@@ -85,18 +93,39 @@ public class GadgetController {
         return incoming;
     }
 
-    private async Task WriteLunAsync(string value, CancellationToken cancellationToken) {
-        // The sysfs attribute expects a bare value with no trailing newline.
-        await File.WriteAllTextAsync(StorageOptions.LunFilePath, value, cancellationToken);
-    }
+    /// <summary>
+    /// Writes the LUN backing file, retrying while the host holds it busy.
+    /// Returns false rather than throwing so callers can decide what to do about it.
+    /// </summary>
+    private async Task<bool> TryWriteLunAsync(
+        string value,
+        string description,
+        int? maximumAttempts,
+        CancellationToken cancellationToken) {
 
-    private async Task TryRestoreAsync(string imagePath) {
-        try {
-            await WriteLunAsync(imagePath, CancellationToken.None);
+        var attempts = Math.Max(1, maximumAttempts ?? StorageOptions.LunWriteRetries);
+
+        for (var attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                // The sysfs attribute expects a bare value with no trailing newline.
+                await File.WriteAllTextAsync(StorageOptions.LunFilePath, value, cancellationToken);
+                return true;
+            }
+            catch (IOException exception) {
+                Logger.LogWarning(
+                    "Attempt {Attempt} of {Total} to {Description} failed while the host held the medium: {Message}",
+                    attempt,
+                    attempts,
+                    description,
+                    exception.Message);
+
+                if (attempt < attempts) {
+                    await Task.Delay(StorageOptions.LunWriteRetryDelayMs, cancellationToken);
+                }
+            }
         }
-        catch (Exception exception) {
-            Logger.LogError(exception, "Could not restore '{Image}'. The scanner may see no drive.", imagePath);
-        }
+
+        return false;
     }
 
     /// <summary>
@@ -108,25 +137,31 @@ public class GadgetController {
     /// abandoning the cycle and stranding the scan on the drive.
     /// </summary>
     private async Task EjectAsync(CancellationToken cancellationToken) {
-        for (var attempt = 1; attempt <= StorageOptions.EjectRetries; attempt++) {
-            try {
-                await WriteLunAsync("", cancellationToken);
-                return;
-            }
-            catch (IOException exception) {
-                Logger.LogWarning(
-                    "Eject attempt {Attempt} of {Total} failed because the host still holds the medium: {Message}",
-                    attempt,
-                    StorageOptions.EjectRetries,
-                    exception.Message);
-
-                if (attempt < StorageOptions.EjectRetries) {
-                    await Task.Delay(StorageOptions.EjectRetryDelayMs, cancellationToken);
-                }
-            }
+        // Write a newline rather than an empty string. An empty write never reaches the
+        // kernel's store handler, so it reports success and ejects nothing; the kernel
+        // strips the trailing newline itself and treats the result as "no medium".
+        if (await TryWriteLunAsync("\n", "eject", StorageOptions.EjectAttemptsBeforeForcing, cancellationToken)
+            && await IsEjectedAsync(cancellationToken)) {
+            return;
         }
 
+        // Expected whenever the host has the medium mounted: it locks removal with SCSI
+        // PREVENT ALLOW MEDIUM REMOVAL, and the kernel then refuses a polite eject. Forcing
+        // is what that control exists for.
         await ForceEjectAsync(cancellationToken);
+    }
+
+    private async Task<bool> IsEjectedAsync(CancellationToken cancellationToken) {
+        var exposed = await GetExposedImageAsync(cancellationToken);
+
+        if (string.IsNullOrEmpty(exposed)) {
+            return true;
+        }
+
+        // A write that succeeds without changing anything is worse than one that fails,
+        // because everything downstream then acts on a drive the host still owns.
+        Logger.LogWarning("Eject reported success but '{Exposed}' is still mounted.", exposed);
+        return false;
     }
 
     private async Task ForceEjectAsync(CancellationToken cancellationToken) {

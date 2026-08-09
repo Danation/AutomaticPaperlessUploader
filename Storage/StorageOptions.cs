@@ -21,12 +21,24 @@ public class StorageOptions {
     public int MediaChangeDelayMs { get; set; } = 500;
 
     /// <summary>
-    /// How many times to retry a polite eject before forcing it. The scanner briefly
-    /// holds the medium after writing, which makes the kernel report the LUN as busy.
+    /// How many times to retry writing the LUN backing file before giving up.
+    ///
+    /// Applies to every write, not just the eject. The host holds the LUN busy while it
+    /// reacts to a media change, so inserting the replacement image can fail for exactly
+    /// the same reason ejecting the old one can.
     /// </summary>
-    public int EjectRetries { get; set; } = 3;
+    public int LunWriteRetries { get; set; } = 5;
 
-    public int EjectRetryDelayMs { get; set; } = 1000;
+    public int LunWriteRetryDelayMs { get; set; } = 500;
+
+    /// <summary>
+    /// How many polite ejects to try before forcing.
+    ///
+    /// Kept low deliberately. A host with the medium mounted holds the removal lock for as
+    /// long as it stays mounted, so retrying is only worth doing in case it happens to be
+    /// mid release; beyond that it is just delay before the inevitable forced eject.
+    /// </summary>
+    public int EjectAttemptsBeforeForcing { get; set; } = 2;
 
     /// <summary>
     /// Ignore repeat submissions within this window, so keypad bounce or an impatient
